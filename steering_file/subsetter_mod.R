@@ -53,7 +53,7 @@ subset_wrf_hydro_domain_mod = function(AOI, domain_files, outDir, config){
   subWrfFile      <- paste0(myPath, "/wrfinput.nc")
   subSoilparmFile <- paste0(myPath, "/soilproperties_", config, ".nc")
   #From hydro.namelist
-  subGeoFile        <- paste0(myPath, "/geo_em_.nc")
+  subGeoFile        <- paste0(myPath, "/geo_em.nc")
   subHydFile        <- paste0(myPath, "/Fulldom_", config, ".nc")
   subHydro2dFile    <- paste0(myPath, "/hydro2dtbl_", config, ".nc")
   subSpatialMeta    <- paste0(myPath, "/GEOGRID_LDASOUT_Spatial_Metadata.nc")
@@ -214,7 +214,6 @@ subset_wrf_hydro_domain_mod = function(AOI, domain_files, outDir, config){
     system(paste0("ncks -O -d west_east,", geo_w-1, ",", geo_e-1, " -d south_north,", geo_s-1, ",", geo_n-1, " ", fullWrfFile, " ", subWrfFile))
     system(paste0("ncatted -h -a WEST-EAST_GRID_DIMENSION,global,o,l,", geo_e-geo_w+2, " ", subWrfFile))
     system(paste0("ncatted -h -a SOUTH-NORTH_GRID_DIMENSION,global,o,l,", geo_n-geo_s+2, " ", subWrfFile))
-    system(paste0())
   }
   print("Processed: wrfinput")
   

@@ -90,7 +90,7 @@ summarize.cells = function(input, output, no_data = NA){
 #' @title Resample_mod
 #' @description resample an input raster to an output grid using three different methods
 #' @param input a raster of fine resolution
-#' @param output *a raster of coarse resolution. Customized for wrf-hydro subsetter
+#' @param output_geo *a coarse resolution of target raster. Customized for wrf-hydro subsetter
 #' @param cellsize cell resolution of output target grid. In units of input CRS
 #' @param method the method for resampling, nearest neighbor (nn), majority rule (maj), Area-based (area), or raw area (rawarea)
 #' @param no_data a value to be treated as NO_DATA. Default to NA
