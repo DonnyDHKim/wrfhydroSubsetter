@@ -1,3 +1,19 @@
+#' @title Subset sequence wrapper
+#' @description Initiates WrfhydroSubsetter workflow
+#' @param comid comid of outlet reach
+#' @param siteID siteID for NWIS
+#' @param FULLDOMAINDIR the value representing "NO DATA", default is NA
+#' @param outDir output directory (e.g. /home/subsetDOMAINS/)
+#' @param nlcdDir directory for nlcd dataset
+#' @param methodList resampling algorithm to use for resampling
+#' @importFrom sf st_transform st_buffer
+#' @importFrom AOI aoi_get bbox_get
+#' @importFrom dataRetrieval findNLDI
+#' @importFrom spex qm_rasterToPolygons
+#' @importFrom raster crop
+#' @importFrom ncdf4 nc_open ncvar_put nc_close
+#' @importFrom resampleDataMod.R resampleDataMod
+
 subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, methodList = NA){
   
   # Defining the area * This could go out and just stay in the loop.
@@ -36,7 +52,7 @@ subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, m
     # Resampling sequence.
     for(j in 1:length(methodList)){
       new_lu = resampleDataMod(input = nlcd_nwm, output = output_geo, method = methodList[j])
-      out_file = paste0(subset_files, "geogrid_", methodList[j], "_resample.nc")
+      out_file = paste0(subset_files, "geo_", methodList[j], ".nc")
       
       file.copy(geo, out_file, overwrite = TRUE)
       nc = ncdf4::nc_open(out_file, write = TRUE)
@@ -45,6 +61,33 @@ subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, m
       ncdf4::nc_close(nc)
     }
   }
+}
+
+
+
+
+#' @title mask_geogrid_byBasin
+#' @description Mask GEOGRID by Watershed Boundary. This can be used to perturb LULC within WS boundary or to calculate LULC statistics within WS.
+#' @param RasterLayer GEOGRID as RasterLayer stack
+#' @param basin Watershed boundary as sf
+#' @importFrom raster rasterize mask st_buffer
+#' @return a dataframe
+
+
+mask_geogrid_byWS = function(RasterLayer, basin){
+  require(raster)
+  require(dplyr)
   
-  
+  basin_coord = st_transform(basin, st_crs(RasterLayer))
+
+  # Regular "raster::mask" function only selects  cells those have their centroid falls inside the polygon (watershed boundary).
+  # We want to choose EVERY cell that intersect with watershed boundary (polygon).
+  basin_coord_ras <- raster::rasterize(basin_coord, RasterLayer, getCover=TRUE) # getCover is the parameter that needs to be set True
+  basin_coord_ras[basin_coord_ras==0] = NA
+  RasterLayer_mask_df <- stack(raster::mask(RasterLayer, basin_coord_ras)) %>% as.data.frame(xy = TRUE)
+  # Resources:
+  # https://stackoverflow.com/questions/68781519/errors-when-clipping-raster-stacks-with-sfst-crop-and-rastercrop
+  # https://gis.stackexchange.com/questions/255025/r-raster-masking-a-raster-by-polygon-also-remove-cells-partially-covered
+
+  return(RasterLayer_mask_df)  
 }

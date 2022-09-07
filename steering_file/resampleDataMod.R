@@ -143,7 +143,7 @@ resampleDataMod = function(input, output_geo=NULL, cellsize = 1000,  method = "a
     #output     = output_grid(input, cellsize = cellsize)
     out        = summarize.cells(input,
                                  output = output,
-                                 no_data = no_data) # this is when I am getting erros.
+                                 no_data = no_data)
     output$cat = resample::reclass(areal_per = out$areal_per,
                          output_count = out$output_count,
                          no_data = no_data)

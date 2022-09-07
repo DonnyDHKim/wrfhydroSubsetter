@@ -1,47 +1,58 @@
 {
-  library(dataRetrieval)
-  library(raster)
-  library(sf)
-  library(resample)
-  library(wrfhydroSubsetter)
-  library(tidyverse)
-  library(AOI)
+  library(dataRetrieval); library(nhdplusTools);
+  library(raster); library(sf); library(fasterize);
+  library(resample); library(wrfhydroSubsetter); library(AOI);
+  library(tidyverse); library(dplyr);
 }
-# This script is prone to crash during debugging.
+
+# This script is prone to crash during debugging. In such cases, just restart R session. It solves most (if not all) of the problems.
 .rs.restartR()
 
 
+### STEP 1======================================================================
+# Setting up locations
 locs = data.frame(comids = c(23762661, 1631587, 5894384, 19389766, 191739, 5781369),
                   siteID = c('14190500', '14190500', '01616500', '03118500' ,'6709000' , '08159000'))
 
+#test_loc = data.frame(comids = c(5894384), siteID = c('01616500')) # In case using a single watershed
 
-# trouble shooting subset_wrf_hydro_domain first
-test_loc = data.frame(comids = c(5894384),
-                      siteID = c('01616500'))
+namelist = c()
+for (i in 1:nrow(locs)){
+  state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
+  name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
+  namelist = c(namelist, name)
+  rm(name)
+  }
 
+# Setting directories
 outDir = "/mnt/d/subsetDOMAINS/"
 FULLDOMAINDIR = "/mnt/d/FULLDOMAIN/nwmCONUS-v216/"
+### STEP 1 END======================================================================
 
 
-## In process of package development.
+
+
+### STEP 2======================================================================
+## Package development purpose
 #library(devtools)
-#detach("package:wrfhydroSubsetter", unload=TRUE)
-#remove.packages("wrfhydroSubsetter")
+#detach("package:wrfhydroSubsetter", unload=TRUE); remove.packages("wrfhydroSubsetter");
 #devtools::install("/mnt/d/GitHub/wrfhydroSubsetter", repos = NULL, type="source")
 #library(wrfhydroSubsetter)
-
 
 # Sourcing modified version of subsetter. Because it is still in development phase.
 source("/mnt/d/GitHub/wrfhydroSubsetter/steering_file/subsetter_mod.R")
 source("/mnt/d/GitHub/wrfhydroSubsetter/steering_file/resampleDataMod.R")
 source("/mnt/d/GitHub/wrfhydroSubsetter/steering_file/subset_sequence.R")
+### STEP 2 END======================================================================
 
 
+
+
+### STEP 3======================================================================
 # Current version of NWM is likely to use NLCD 2016 LC, according to (https://www.weather.gov/media/notification/pdf2/scn20-119nwm_v2_1aad.pdf)
 nlcdDir <- "/mnt/d/nlcd_2016_land_cover_l48_20210604/nlcd_2016_land_cover_l48_20210604.img"
 nlcdObj <- raster(nlcdDir)
 methodList <- c("nn", "maj","rawarea","area")
-
 
 # Running the following wrapper do tasks as follow:
 # 1. Subset NWM domain files based on  given COMIDs & siteIDs
@@ -49,81 +60,195 @@ methodList <- c("nn", "maj","rawarea","area")
 for(i in 1:nrow(locs)){
   subset_sequence(locs$comids[i], locs$siteID[i], FULLDOMAINDIR, outDir, nlcdDir, methodList)
 }
+### STEP 3 END======================================================================
 
 
-# Watershed Shuffle wrapper
+
+
+### From step 4, it is project-specific code: not for typical use of wrfhydrosubsetter.
+### STEP 4======================================================================
+# Watershed Shuffle Loop
 for(i in 1:nrow(locs)){
+  # Specifying WS area
   state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
   name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
   basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin
   
+  # Using Area Preserve sampled GEOGRID to shuffle LC within watershed boundary
   area_resample_Dir = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geogrid_area_resample", full = TRUE)
   area_resample = wrfhydroSubsetter::make_empty_geogrid_raster(area_resample_Dir, "LU_INDEX")
+  area_resample_shuffle = area_resample # RasterLayer
+  area_resample_mask_df = mask_geogrid_byWS(area_resample, basin) #mask_geogrid_byWS is in subset_sequence.R
   
-  basin_coord = st_transform(basin, st_crs(area_resample))
+  # Shuffle LULC inside WS. Cells that are not in WS boundary has value of NA, and omitting them.
+  # Then, perturb/shuffle cell values using "sample" function.
+  shuffled = transform(na.omit(area_resample_mask_df), layer = sample(layer)) 
+  values(area_resample_shuffle)[as.numeric(rownames(shuffled))] <- shuffled$layer # Overwriting shuffled value over RasterLayer.
+  # This overwriting relies on "rownames" which is technically a row index.
   
-  # Regular raster::mask function only selects raster cells those have their centroid falls into polygon boundary
-  # Using rasterize to work around
-  # https://stackoverflow.com/questions/68781519/errors-when-clipping-raster-stacks-with-sfst-crop-and-rastercrop
-  # https://gis.stackexchange.com/questions/255025/r-raster-masking-a-raster-by-polygon-also-remove-cells-partially-covered
-  basin_coord_ras <- rasterize(basin_coord, area_resample, getCover=TRUE)
-  basin_coord_ras[basin_coord_ras==0] = NA
-  area_resample_mask_df <- stack(raster::mask(area_resample, basin_coord_ras)) %>% as.data.frame(xy = TRUE)
-
-  # now shuffle LULC inside WS
-  shuffled = transform(na.omit(area_resample_mask_df), layer = sample(layer))
-  area_resample_shuffle = area_resample
-  values(area_resample_shuffle)[as.numeric(rownames(shuffled))] <- shuffled$layer
-  
+  # Setting output file directory
   out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_shuffle.nc")
   file.copy(area_resample_Dir, out_file, overwrite = TRUE)
   
+  #using ncdf4 package to write separate GEOGRID with shuffled LU_INDEX
   nc = ncdf4::nc_open(out_file, write = TRUE)
-  ncdf4::ncvar_put(nc, "LU_INDEX",
-                   vals = as.vector(t(apply(as.matrix(area_resample_shuffle), 2, rev))))
+  ncdf4::ncvar_put(nc, "LU_INDEX", vals = as.vector(t(apply(as.matrix(area_resample_shuffle), 2, rev))))
   ncdf4::nc_close(nc)
   print(paste0(name, ": Done"))
 }
+### STEP 4 END======================================================================
 
 
 
-# Watershed Shuffle
-state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[4]), crs = 4269),]
-name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[4], locs$siteID[4], sep = "_")))
-basin = findNLDI(comid = locs$comids[4], find = c("basin"))$basin
 
-area_resample_Dir = list.files('/mnt/d/subsetDOMAINS/polk_oregon_23762661_14190500', "geogrid_area_resample", full = TRUE)
-area_resample = wrfhydroSubsetter::make_empty_geogrid_raster(area_resample_Dir, "LU_INDEX")
+### STEP 4-1 ======================================================================
+# HUC 12 Single LU Loop
+for(i in 1:nrow(locs)){
+  name = namelist[i]; basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin;
+  
+  # Load every geogrid netcdf files
+  files = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geo", full = TRUE);
+  ss = stack()
+  for(j in files){
+    ss=addLayer(ss, wrfhydroSubsetter::make_empty_geogrid_raster(j, "LU_INDEX"))
+  }
+  names(ss) = basename(files)
+  
+  # crop them to geogrid box
+  geogrid_box = spex::qm_rasterToPolygons(ss[[1]]) %>% AOI::bbox_get() %>% sf::st_transform(5070)# %>% sf::st_buffer(40)
+  
+  ### Resampling scheme that assigns single LULC values to  each HUC12 ws within study basins
+  basin_geo_coord = st_transform(basin, st_crs(ss[[2]])) #ss[[2]] = area preserving geogrid.
+  huc12s = get_huc12(AOI = geogrid_box) %>% st_transform(st_crs(basin_geo_coord))
+  huc12s = huc12s %>% st_intersection(basin_geo_coord) #only when you want to "clip" huc12 polygons by basin-polygon
+  
+  out_geo = ss[[2]]; out_geo_df = as.data.frame(ss[[2]], xy=TRUE);
+  
+  # Application of step 4 & 5.
+  for (n in 1:nrow(huc12s)){
+    #huc12s_df =  mask_geogrid_byWS(out_geo, huc12s[n,]) %>% na.omit() #n stands for each HUC12 ws
+    huc12s_df =  raster::mask(out_geo, huc12s[n,]) %>% as.data.frame(xy = TRUE) %>% na.omit()
+    huc_dom_LU = huc12s_df %>%  group_by_at(3) %>%  tally() %>% filter (n==max(n)) %>% select_at(1)
+    
+    if (nrow(huc_dom_LU)>1) {
+      huc12s_df =  mask_geogrid_byWS(out_geo, huc12s[n,]) %>% na.omit() #n stands for each HUC12 ws
+      huc_dom_LU = huc12s_df %>%  group_by_at(3) %>%  tally() %>% filter (n==max(n)) %>% select_at(1) %>% as.integer()
+    } else {
+      huc_dom_LU = huc_dom_LU %>% as.integer() #finding the most dominant LULC
+    }
+    
+    raster::values(out_geo)[as.numeric(rownames(huc12s_df))] = huc_dom_LU # Updating the raster cell values
+    
+  }
+  
+  
+  # Setting output file directory
+  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_huc12uniform.nc")
+  
+  file.copy(paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_area_resample.nc"), 
+            out_file, 
+            overwrite = TRUE)
+  
+  #using ncdf4 package to write separate GEOGRID with HUC12 ws having single LU representation
+  nc = ncdf4::nc_open(out_file, write = TRUE)
+  ncdf4::ncvar_put(nc, "LU_INDEX", vals = as.vector(t(apply(as.matrix(out_geo), 2, rev))))
+  ncdf4::nc_close(nc)
+  print(paste0(name, ": HUC12 uniform LC sampling done"))
+}
 
-basin = findNLDI(comid = locs$comids[1], find = c("basin"))$basin
-crs.here <- paste0(st_crs(area_resample)[1])
-basin_coord = st_transform(basin, crs.here) %>% st_as_sf()
-basin_coord2 = st_transform(basin, st_crs(area_resample))%>% st_as_sf()
 
-# Regular raster::mask function only selects raster cells those have their centroid falls into polygon boundary
-# Using rasterize to work around
-# https://stackoverflow.com/questions/68781519/errors-when-clipping-raster-stacks-with-sfst-crop-and-rastercrop
-# https://gis.stackexchange.com/questions/255025/r-raster-masking-a-raster-by-polygon-also-remove-cells-partially-covered
-basin_coord_ras <- rasterize(basin_coord, area_resample, getCover=TRUE)
-basin_coord_ras[basin_coord_ras==0] = NA
+###### Plot
+out_geo_mapping = as.data.frame(out_geo, xy=TRUE) %>% rename(LU = 3)
+ggplot()+
+  #geom_raster(as.data.frame(ss[[2]], xy=T),mapping = aes(x=x, y=y, fill=as.factor(geogrid_area_resample.nc)))+
+  geom_raster(out_geo_mapping,mapping = aes(x=x, y=y, fill=as.factor(LU)))+
+  #geom_sf(basin_geo_coord, mapping = aes(fill=NULL), color = 'red', alpha = 0)+
+  geom_sf(huc12s, mapping = aes(fill=NULL), alpha = 0)#
+###### Plot end
+### STEP 4-1 END======================================================================
 
-area_resample_mask_df <- stack(raster::mask(area_resample, basin_coord_ras)) %>% as.data.frame(xy = TRUE)
-colnames(area_resample_mask_df) =c('x', 'y', 'layer')
 
-# Simply checking out.
-# https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/
-ggplot() +
-  geom_raster(data = area_resample_mask_df, aes(x = x, y = y, fill = as.factor(layer)))+
-  geom_sf(data = basin_coord, colour = "black", fill = "NA")+
-  scale_fill_manual(name = "grp",values = myColors) +
-  coord_sf()
 
-# now shuffle LULC inside WS
-shuffled = transform(na.omit(area_resample_mask_df), layer = sample(layer))
-#area_resample_mask_df[as.numeric(rownames(non_na_shuffled)),] <- non_na_shuffled$layer
 
-area_resample_shuffle = area_resample
-values(area_resample_shuffle)[as.numeric(rownames(shuffled))] <- shuffled$layer
+### STEP 5======================================================================
+# WS LULC statistics
+lookup_table = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
+  dplyr::select(nlcd = Class, description = Description, nwm = NWM) %>% select(nwm, nlcd, description) %>% arrange(nwm, nlcd)
+
+for(i in 1:nrow(locs)){
+  name = namelist[i]; basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin;
+  
+  # Load every geogrid netcdf files
+  files = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geo", full = TRUE)
+  ss = stack()
+  for(j in files){
+    ss=addLayer(ss, wrfhydroSubsetter::make_empty_geogrid_raster(j, "LU_INDEX"))
+  }
+  names(ss) = basename(files)
+
+  # crop them to geogrid box
+  geogrid_box = spex::qm_rasterToPolygons(ss[[1]]) %>%
+    AOI::bbox_get() %>%
+    sf::st_transform(5070) %>%
+    sf::st_buffer(40)
+  nlcd_crop = raster::crop(nlcdObj, geogrid_box) 
+  
+  # Masking (clipping) cropped nlcd into watershed boundary
+  # I am not using mask_geogrid_byWS function, as it leads to error.
+  basin_coord = st_transform(basin, st_crs(nlcd_crop))
+  nlcd_mask_df = raster::mask(nlcd_crop, fasterize::fasterize(basin_coord, nlcd_crop)) %>% getValues() %>% as.data.frame(xy = TRUE)
+  nlcd_basin_stat = nlcd_mask_df %>% na.omit() %>% group_by_at(1) %>% tally() %>% rename(nlcd = 1) %>% rename(nlcd_2016 = 2)
+  nlcd_basin_stat[,2] = nlcd_basin_stat[,2]/(sum(nlcd_basin_stat[,2])) * 100 # percent
+  
+  # I didn't want to spend time to write code that uses map or apply 
+  mask_LU_stat1 = mask_geogrid_byWS(ss[[1]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[1] := 2)
+  mask_LU_stat2 = mask_geogrid_byWS(ss[[2]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[2] := 2)
+  mask_LU_stat3 = mask_geogrid_byWS(ss[[3]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[3] := 2)
+  mask_LU_stat4 = mask_geogrid_byWS(ss[[4]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[4] := 2)
+  mask_LU_stat5 = mask_geogrid_byWS(ss[[5]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[5] := 2)
+  mask_LU_stat6 = mask_geogrid_byWS(ss[[6]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[6] := 2)
+  mask_LU_stat7 = mask_geogrid_byWS(ss[[7]], basin) %>% na.omit() %>%  group_by_at(3) %>% tally() %>% rename(nwm = 1) %>%  rename(!!basename(files)[7] := 2)
+  
+  #merge all data frames in list
+  df_list <- list(mask_LU_stat1, mask_LU_stat2,mask_LU_stat3, mask_LU_stat4, mask_LU_stat5, mask_LU_stat6, mask_LU_stat7) %>% reduce(full_join, by='nwm') %>% as.data.frame()
+  rm(mask_LU_stat1, mask_LU_stat2,mask_LU_stat3, mask_LU_stat4, mask_LU_stat5, mask_LU_stat6, mask_LU_stat7)
+  
+  # make it percent
+  for (k in 2:ncol(df_list)){
+    df_list[,k] <- df_list[,k]/sum(df_list[,k], na.rm=TRUE) * 100
+  }
+  
+  # join nlcd and different geogrid LULC stats
+  LU_stat_merged = lookup_table %>% right_join(nlcd_basin_stat) %>% right_join(df_list)
+  LU_stat_merged[,4:ncol(LU_stat_merged)] = round(LU_stat_merged[,4:ncol(LU_stat_merged)], digits = 1)
+
+  # Let's also look into pearson spatial correlation between different resampling methods
+  x = layerStats(ss, stat = 'pearson')$pearson %>% as.data.frame()
+  
+  # Save it as csv files
+  write_csv(LU_stat_merged, file = paste0(outDir, "/", name, "/LU_WS_stats.csv"))
+  write.csv(x, file = paste0(outDir, "/", name, "/Pearson.csv"), row.names= TRUE)
+  print(paste0(name, ": Basin stats and Pearson spatial correlation saved as CSV"))
+}
+### STEP 5 END======================================================================
+
+
+
+
+# Plotting
+## Simply checking out.
+## https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/
+#ggplot() +
+#  geom_raster(data = area_resample_mask_df, aes(x = x, y = y, fill = as.factor(layer)))+
+#  geom_sf(data = basin_coord, colour = "black", fill = "NA")+
+#  scale_fill_manual(name = "grp",values = myColors) +
+#  coord_sf()
+
+# Plotting wrapper: messy but works
+{
+  
+}
+
 
 # Checking out if it is shuffled nicely.
 {
@@ -144,161 +269,7 @@ values(area_resample_shuffle)[as.numeric(rownames(shuffled))] <- shuffled$layer
 }
 
 
-# subset sequence that includes LU resampling.
-#subset_sequence(test_loc$comids[1], test_loc$siteID[1], FULLDOMAINDIR, outDir, nlcdDir, methodList) 
 
-{### test========================================================================
-# Defining the area
-state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = test_loc$comids[1]), crs = 4269),]
-name = gsub(" ", "-", tolower(paste(state$name, state$state_name, test_loc$comids[1], test_loc$siteID[1], sep = "_")))
-basin = findNLDI(comid = test_loc$comids[1], find = c("basin"))$basin
-
-# Subsetting NetCDF DOMAIN files
-subset_files = paste0(outDir, name , "/")
-
-# This data look-up table is most problematic at current point 08/10/2022
-data = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
-  dplyr::select(nlcd = Class, 
-                description = Description,
-                nwm = NWM)
-geo  = list.files(subset_files, "geo_em.nc", full.names = TRUE)
-
-nlcdDir <- "/mnt/d/nlcd_2016_land_cover_l48_20210604/nlcd_2016_land_cover_l48_20210604.img"
-nlcdObj <- raster(nlcdDir)
-#nlcdObj2 <- projectRaster(nlcdObj, crs=crs.here)
-
-output_geo = spex::qm_rasterToPolygons(wrfhydroSubsetter::make_empty_geogrid_raster(geo))
-output_geo_raster = wrfhydroSubsetter::make_empty_geogrid_raster(geo) # 43x28
-#o1 =  output_geo %>%
-#  AOI::bbox_get()
-o2 = output_geo %>%
-  AOI::bbox_get() %>%
-  sf::st_transform(5070) %>%
-  sf::st_buffer(40)
-
-#crs.here <- paste0(st_crs(output_geo_raster))
-#plot(o1)
-#plot(o2)
-#
-#o3 = o2%>% 
-#  sf::st_transform(st_crs(output_geo))
-#
-## So, 
-
-
-#o0_to_grid <- output_grid(output_geo, 1000) # 46x31
-#o1_to_grid <- output_grid(o1, 1000) # 46x31
-crs.here <- paste0(st_crs(output_geo)[1])
-#crs.here2 <- paste0(st_crs(output_geo)[1])
-#
-#o2_to_grid <- output_grid(o2, 1000) # 46x31
-#o3_to_grid <- output_grid(o3, 1000) # 43x28
-#
-#test = o2 %>% 
-#  sf::st_transform(sf::st_crs(output_geo))
-
-nlcdCrop = raster::crop(nlcdObj, o2)
-#nlcdCrop2 = projectRaster(nlcdCrop, crs.here)
-
-nlcd_nwm = raster::reclassify(nlcdCrop, rcl = dplyr::select(data, from = nlcd, to = nwm))
-
-#https://stackoverflow.com/questions/47415451/change-raster-extent
-#
-#nlcd_nwm2 = nlcd_nwm
-#bb <- extent(output_geo_raster)
-#extent(nlcd_nwm2) <- bb
-#crs(nlcd_nwm2) <- paste0(st_crs(output_geo_raster))[1]
-#
-
-#
-#
-#nlcd_nwm2 = projectRaster(nlcd_nwm, crs = crs.here)
-#nlcd_nwm3 = raster::crop(nlcd_nwm2, o1)
-
-#crs.here <- paste0(st_crs(output_geo_raster)[1])
-#pts = st_sfc(st_point(c(lng_max,lat_max)), crs = 4326) %>%
-#  st_transform(crs.here) %>%
-#  st_coordinates()
-
-
-plot(nlcd_nwm)
-plot(nlcd_nwm2)
-
-
-nlcd_nwm2 = nlcd_nwm
-bb <- extent(output_geo)
-extent(nlcd_nwm2) <- bb
-crs(nlcd_nwm2) <- paste0(st_crs(output_geo))[1]
-
-nlcd_nwm3 <- projectRaster(nlcd_nwm, crs = 4326)
-nlcd_nwm3 <- nlcd_nwm
-crs(nlcd_nwm3) <- 4326
-nlcd_nwm3 <- projectRaster(nlcd_nwm3, crs = 4326)
-
-testout = call_gdal_mod(nlcd_nwm2, "mode", cellsize=1000)
-plot(testout)
-
-#x1 = as_tibble(nlcd_nwm)
-#x2 = as_tibble(nlcd_nwm2)
-
-methodList <- c("area", "rawarea", "maj", "nn")
-methodList <- c("area", "maj")
-methodList <- c("area")
-source("/mnt/d/GitHub/wrfhydroSubsetter/steering_file/resampleDataMod.R")
-
-for(j in 1:length(methodList)){
-  #new_lu = resample::resampleData(input = nlcd_nwm, output = output_geo, method = methodList[j])
-  new_lu = resampleDataMod(input = nlcd_nwm, output_geo = output_geo, method = methodList[j])
-  out_file = paste0(subset_files, "geogrid_", methodList[j], "_resample.nc")
-  file.copy(geo, out_file, overwrite = TRUE)
-  nc = ncdf4::nc_open(out_file, write = TRUE)
-  ncdf4::ncvar_put(nc, "LU_INDEX",
-                   vals = as.vector(t(apply(as.matrix(new_lu), 2, rev))))
-  ncdf4::nc_close(nc)
-}
-
-### testing croping new_lu with basin polygon
-library(sf)
-library(raster)
-#library(terrainr)
-
-#coordProj = geo_grid_proj(geo)
-basin_coord = st_transform(basin, crs.here) %>% st_as_sf()
-new_lu_df <- as.data.frame(new_lu, xy = TRUE) 
-
-library(ggplot2)
-
-# https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/
-# https://stackoverflow.com/questions/68781519/errors-when-clipping-raster-stacks-with-sfst-crop-and-rastercrop
-
-ggplot() +
-  geom_raster(data = new_lu_df, aes(x = x, y = y, fill = layer))+
-  geom_sf(data = basin_coord, colour = "red", fill = "NA")+
-  coord_sf()
-
-
-my_stack <- stack(raster::crop(new_lu, basin_coord))
-my_stack <- stack(raster::mask(my_stack, basin_coord))
-my_stack_df <- my_stack %>% as.data.frame(xy=TRUE)
-
-ggplot() +
-  geom_raster(data = my_stack_df, aes(x = x, y = y, fill = layer))+
-  geom_sf(data = basin_coord, colour = "red", fill = "NA")+
-  coord_sf()
-
-cropping_test <- raster::mask(new_lu2, basin_coord)
-
-#new_lu2 = st_crop(new_lu, o0_to_grid)
-#test = resample::raster.from.vector(new_lu2)
-#
-#
-#new_lu2 = raster::crop(new_lu, output_geo_raster)
-#new_lu3 = raster::crop(new_lu2, output_geo_raster)
-#new_lu3 = raster(ext=extent(output_geo), res=c(1000,1000))
-#plot(new_lu)
-#plot(new_lu2)
-
-}### test end========================================================================
 
 ### test plot========================================================================
 data = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
@@ -333,7 +304,7 @@ colScale <- scale_colour_manual(name = "grp",values = myColors)
 
 
 
-files = list.files('/mnt/d/subsetDOMAINS/polk_oregon_23762661_14190500', "geo", full = TRUE)
+files = list.files(paste0('/mnt/d/subsetDOMAINS/',namelist[3]), "geo", full = TRUE)
 s = stack()
 for(i in files){
   print(i)
@@ -343,10 +314,6 @@ names(s) = basename(files)
 #plot(s)
 
 tmp = values(s) %>% data.frame() %>% mutate(cell = 1:n()) %>%  tidyr::pivot_longer(-cell)
-
-x = layerStats(s, stat = 'pearson')$pearson
-x
-
 
 
 #library(rasterVis)
@@ -368,54 +335,3 @@ ggplot(data = tmp) +
 hist(s, breaks = 20)
 ### test plot end========================================================================
 
-
-
-
-#### Below is wrapper function=================================================
-# subsest_sequence is a wrapper that automates the procedure in build_subset.R
-subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, methodList = NA){
-  
-  # Defining the area
-  state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = comid), crs = 4269),]
-  name = gsub(" ", "-", tolower(paste(state$name, state$state_name, comid, siteID, sep = "_")))
-  basin = findNLDI(comid = comid, find = c("basin"))$basin
-
-  # Subsetting NetCDF DOMAIN files
-  subset_files = paste0(outDir, "/", name , "/")
-  subset_wrf_hydro_domain_mod(AOI = basin,  domain_files = FULLDOMAINDIR,  outDir = subset_files, config = 'LongRange')
-  
-  
-  # Resampling sequence
-  if (exists("methodList")==T & exists("nlcdObj")==T) {
-    data = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
-      dplyr::select(nlcd = Class, 
-                    description = Description,
-                    nwm = NWM)
-    geo  = list.files(subset_files, "geo_em.nc", full.names = TRUE)
-    
-    output_geo = spex::qm_rasterToPolygons(wrfhydroSubsetter::make_empty_geogrid_raster(geo))
-    o2 = output_geo %>%
-      AOI::bbox_get() %>%
-      sf::st_transform(5070) %>%
-      sf::st_buffer(40)
-    
-    nlcdObj = raster(nlcdDir)
-    methodList = methodList
-    nlcdCrop = raster::crop(nlcdObj, o2)
-    nlcd_nwm = raster::reclassify(nlcdCrop, rcl = dplyr::select(data,from = nlcd, to = nwm ))
-    
-    for(j in 1:length(methodList)){
-      new_lu = resample::resampleData(input = nlcd_nwm, output = output, method = methodList[j])
-      out_file = paste0(subset_files, "geogrid_", method[j], "_resample.nc")
-      
-      file.copy(geo, out_file, overwrite = TRUE)
-      nc = ncdf4::nc_open(out_file, write = TRUE)
-      ncdf4::ncvar_put(nc, "LU_INDEX",
-                       vals = as.vector(t(apply(as.matrix(new_lu), 2, rev))))
-      ncdf4::nc_close(nc)
-    }
-    
-  }
-
-  
-}
