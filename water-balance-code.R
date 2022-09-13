@@ -1,18 +1,21 @@
-library(sf)
-library(lubridate)
-library(RNetCDF)
-library(dplyr)
-library(ggplot2)
+{
+  library(sf)
+  library(lubridate)
+  library(RNetCDF)
+  library(dplyr)
+  library(ggplot2)
+}
+
 
 
 ## Base Material
 #=======================================================
-subPath = '/Volumes/Transcend/land-cover-tests/berkeley_west-virginia_5894384_01616500/geo_em.d0x.nc'
+subPath = '/mnt/d/subsetDOMAINS/berkeley_west-virginia_5894384_01616500/geo_em.nc'
 
 geogrid.raster = wrfhydroSubsetter::make_empty_geogrid_raster(subPath)
 basin = dataRetrieval::findNLDI(nwis = '01616500', find = c("basin"))$basin
 
-maskBas = fasterize::fasterize(st_transform(basin, st_crs(geogrid.raster)), geogrid.raster)
+maskBas = fasterize::fasterize(st_transform(basin, st_crs(geogrid.raster)), geogrid.raster) # may be this needs to be changed?
 
 #These are the variable names, descriptions and units we need
 df = data.frame(variableNames = c("ACCECAN", "ACCEDIR", "ACCETRAN", "ACCPRCP",
@@ -36,8 +39,9 @@ df = data.frame(variableNames = c("ACCECAN", "ACCEDIR", "ACCETRAN", "ACCPRCP",
 #=======================================================
 
 # USER PROVIDES DIRECTORY, TO OUTPUT
-dir  = '/Volumes/Transcend/land-cover-tests/berkley-spinup'
-# USER PROVIDES SOIL DEPTHS
+dir  = '/mnt/d/OUTPUTS/berkeley_west-virginia_5894384_01616500/RUN_HUC12L_20220912_1401/'
+
+# USER PROVIDES SOIL DEPTH
 soil_depths_mm = c(100, 300, 600, 1000)
 
 # Read all files in directory, and pull out date and water year
@@ -51,6 +55,7 @@ fileList = data.frame(
 # The current water budget formulation is the first minus the last timestep.
 # So, lets only process those...
 fileList = fileList[c(1,nrow(fileList)),]
+#fileList = fileList[c(1,3660),]
 
 ## Mask of 1, NA depending on if cell is in basin
 maskMatrix = raster::as.matrix(maskBas)
@@ -89,7 +94,7 @@ for(i in 1:nrow(fileList)){
   # add these to the 'out' list
   out[[i]] = data.frame(t(c(unlist(surface_extract),
                             unlist(soil_extract)))) %>%
-    setNames(c(variableNames,
+    setNames(c(df$variableNames,
                paste0('SOIL_', 1:length(soil_depths_mm))))
   RNetCDF::close.nc(tmp.nc)
 }

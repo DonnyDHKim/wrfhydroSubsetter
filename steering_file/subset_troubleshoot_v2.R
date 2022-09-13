@@ -235,6 +235,21 @@ for(i in 1:nrow(locs)){
 
 
 
+### STEP 6======================================================================
+# Let's use create_wrfinput and create_soilproperties.
+for(x in namelist){
+  targetDir = paste0(outDir, x)
+  files = list.files('/mnt/d/create_all')
+  file.copy(list.files('/mnt/d/create_all', full.names = T), targetDir)
+  setwd(targetDir)
+  system("./create_wrfinput_AP.R --geogrid='geo_AP.nc' --filltyp=3 --laimo=8;
+  ./create_wrfinput_SHUF.R --geogrid='geo_SHUF.nc' --filltyp=3 --laimo=8; 
+  ./create_wrfinput_HUC12L.R --geogrid='geo_HUC12L.nc' --filltyp=3 --laimo=8; 
+  ./create_soilproperties_AP.R; ./create_soilproperties_SHUF.R; ./create_soilproperties_HUC12L.R")
+  file.remove(files);  setwd('/mnt/d/')
+}
+  ### STEP 6 END======================================================================
+
 # Plotting
 ## Simply checking out.
 ## https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/
@@ -243,11 +258,6 @@ for(i in 1:nrow(locs)){
 #  geom_sf(data = basin_coord, colour = "black", fill = "NA")+
 #  scale_fill_manual(name = "grp",values = myColors) +
 #  coord_sf()
-
-# Plotting wrapper: messy but works
-{
-  
-}
 
 
 # Checking out if it is shuffled nicely.
@@ -271,7 +281,9 @@ for(i in 1:nrow(locs)){
 
 
 
-### test plot========================================================================
+### Plotting========================================================================
+library(rasterVis)
+library(ggplot2)
 data = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
   dplyr::select(nlcd = Class, 
                 description = Description,
@@ -289,7 +301,7 @@ col_lu <- data.frame(
             "#A58C30", "#CCBA7C",
             "#E2E2C1", "#C9C977", "#99C147", "#77AD93",
             "#DBD83D", "#AA7028",
-            "#BAD8EA", "#70A3BA", NA) ,
+            "#BAD8EA", "#70A3BA", "#64b3d5") ,
   
   name = c(NA, "EMPTY", "Open Water", "Ice/Snow", "Developed (Open)", "Developed (Low)", 'Developed (Medium)', 'Developed (High)', "Barren",
            "Deciduous Forest", "Evergreen Forest", "Mixed Forest", "Dwarf Scrub", "Shurb", "Grassland", "Sedge", 'Lichens', "Moss",
@@ -297,34 +309,74 @@ col_lu <- data.frame(
   
   stringsAsFactors = FALSE)
 
-tt = dplyr::left_join(data, col_lu, by = c("nlcd" = "nlcd.code"))
+tt = dplyr::left_join(data, col_lu, by = c("nlcd" = "nlcd.code")) %>% arrange(nwm) %>% na.omit()
+#tt = dplyr::left_join(data, col_lu, by = c("nwm" = "nwm.code")) %>% arrange(nwm) %>% na.omit()
 myColors <- tt$color
 names(myColors) <- levels(tt$nwm)
-colScale <- scale_colour_manual(name = "grp",values = myColors)
+colScale <- scale_colour_manual(name = "grp",values = myColors, breaks=tt$nwm)
 
 
+basic_plot_prep = function(x, nlcdObj){
+  files = list.files(paste0('/mnt/d/subsetDOMAINS/',namelist[x]), "geo", full = TRUE)
+  s = stack()
+  
+  for(i in files){
+    print(i)
+    s=addLayer(s, wrfhydroSubsetter::make_empty_geogrid_raster(i, "LU_INDEX"))
+  }
+  
+  names(s) = basename(files);   s = s[[1:4]];
+  
+  geogrid_box = spex::qm_rasterToPolygons(s[[1]]) %>% AOI::bbox_get() %>% sf::st_transform(5070) %>% sf::st_buffer(40)
+  
+  nlcd_tmp = raster::crop(nlcdObj, geogrid_box)# %>% st_transform(st_crs(s[[1]]))
+  nlcd_tmp = projectRaster(nlcd_tmp, crs= 5070, method = "ngb")
+  
+  s=  projectRaster(s, crs= 5070, method = "ngb")
+  #extent(nlcd_tmp) = extent(s[[1]])
+  
+  #s2 = stack(nlcd_tmp, s)
+  
+  
+  tmp = values(s) %>% data.frame() %>% mutate(cell = 1:n()) %>%  tidyr::pivot_longer(-cell)
+  tmp_basin = findNLDI(comid = locs$comids[x], find = c("basin"))$basin %>% st_transform(5070)
+  tmp_HUC12 = get_huc12(AOI = geogrid_box) %>%
+    st_transform(st_crs(5070)) %>% st_intersection(tmp_basin)
+  
+  tmp_basin = tmp_basin %>% as('Spatial') %>% fortify();
+  tmp_HUC12 = tmp_HUC12 %>% as('Spatial') %>% fortify();
 
-files = list.files(paste0('/mnt/d/subsetDOMAINS/',namelist[3]), "geo", full = TRUE)
-s = stack()
-for(i in files){
-  print(i)
-  s=addLayer(s, wrfhydroSubsetter::make_empty_geogrid_raster(i, "LU_INDEX"))
+  
+  return(list(s, tmp_basin, tmp_HUC12, nlcd_tmp))
 }
-names(s) = basename(files)
-#plot(s)
 
-tmp = values(s) %>% data.frame() %>% mutate(cell = 1:n()) %>%  tidyr::pivot_longer(-cell)
+plot_out = basic_plot_prep(5, nlcdObj)
+
+plot_out[[4]] =  raster::reclassify(plot_out[[4]], rcl = dplyr::select(data, from = nlcd, to = nwm))
 
 
-#library(rasterVis)
-#library(ggplot2)
 
-rasterVis::gplot(s) +
+p1 = rasterVis::gplot(plot_out[[1]]) +
   geom_tile(aes(fill = as.factor(value))) +
   facet_wrap(~ variable, ncol = 2) +
-  scale_fill_manual(name = "grp",values = myColors) +
+  geom_path(data=plot_out[[3]], aes(long, lat, group=group), color = 'black')+
+  geom_path(data=plot_out[[2]], aes(long, lat, group=group), color = 'blue')+
+  scale_fill_manual(name = "grp",values = myColors, breaks=tt$nwm) +
+  colScale+
   coord_equal()
   #theme(legend.position = "none")
+
+p2 = rasterVis::gplot(plot_out[[4]])+
+  geom_tile(aes(fill = as.factor(value))) +
+  geom_path(data=plot_out[[3]], aes(long, lat, group=group), color = 'black')+
+  geom_path(data=plot_out[[2]], aes(long, lat, group=group), color = 'blue')+
+  scale_fill_manual(name = "grp",values = myColors, breaks=tt$nwm) +
+  colScale+
+  coord_equal()
+
+
+gridExtra::grid.arrange(p1, p2, ncol=2)
+
 
 ggplot(data = tmp) +
   geom_histogram(aes(x = as.factor(value), fill= name), stat = "count", position='dodge') +
