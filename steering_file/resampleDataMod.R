@@ -137,7 +137,7 @@ resampleDataMod = function(input, output_geo=NULL, cellsize = 1000,  method = "a
     rr = resample::raster.from.vector(output)
 
     
-  } else if(method == "area"){
+  } else if(method == "AP"){
     
     message("Areal Proportions...")
     #output     = output_grid(input, cellsize = cellsize)

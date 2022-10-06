@@ -52,7 +52,7 @@ source("/mnt/d/GitHub/wrfhydroSubsetter/steering_file/subset_sequence.R")
 # Current version of NWM is likely to use NLCD 2016 LC, according to (https://www.weather.gov/media/notification/pdf2/scn20-119nwm_v2_1aad.pdf)
 nlcdDir <- "/mnt/d/nlcd_2016_land_cover_l48_20210604/nlcd_2016_land_cover_l48_20210604.img"
 nlcdObj <- raster(nlcdDir)
-methodList <- c("nn", "maj","rawarea","area")
+methodList <- c("nn", "maj","rawarea","AP")
 
 # Running the following wrapper do tasks as follow:
 # 1. Subset NWM domain files based on  given COMIDs & siteIDs
@@ -75,7 +75,7 @@ for(i in 1:nrow(locs)){
   basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin
   
   # Using Area Preserve sampled GEOGRID to shuffle LC within watershed boundary
-  area_resample_Dir = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geogrid_area_resample", full = TRUE)
+  area_resample_Dir = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geo_AP", full = TRUE)
   area_resample = wrfhydroSubsetter::make_empty_geogrid_raster(area_resample_Dir, "LU_INDEX")
   area_resample_shuffle = area_resample # RasterLayer
   area_resample_mask_df = mask_geogrid_byWS(area_resample, basin) #mask_geogrid_byWS is in subset_sequence.R
@@ -87,7 +87,7 @@ for(i in 1:nrow(locs)){
   # This overwriting relies on "rownames" which is technically a row index.
   
   # Setting output file directory
-  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_shuffle.nc")
+  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geo_SHUF.nc")
   file.copy(area_resample_Dir, out_file, overwrite = TRUE)
   
   #using ncdf4 package to write separate GEOGRID with shuffled LU_INDEX
@@ -96,6 +96,40 @@ for(i in 1:nrow(locs)){
   ncdf4::nc_close(nc)
   print(paste0(name, ": Done"))
 }
+
+
+# Watershed NWM PERT Loop
+for(i in 1:nrow(locs)){
+  # Specifying WS area
+  #state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
+  #name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
+  name = namelist[i]
+  basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin
+  
+  # Using Area Preserve sampled GEOGRID to shuffle LC within watershed boundary
+  NWM_geo_Dir = list.files(paste0('/mnt/d/subsetDOMAINS/', name), "geo_em", full = TRUE)
+  NWM_geo = wrfhydroSubsetter::make_empty_geogrid_raster(NWM_geo_Dir, "LU_INDEX")
+  NWM_PERT = NWM_geo
+  NWM_geo_mask_df = mask_geogrid_byWS(NWM_geo, basin)
+
+  # Shuffle LULC inside WS. Cells that are not in WS boundary has value of NA, and omitting them.
+  # Then, perturb/shuffle cell values using "sample" function.
+  perturbed = transform(na.omit(NWM_geo_mask_df), layer = sample(layer)) 
+  values(NWM_PERT)[as.numeric(rownames(perturbed))] <- perturbed$layer # Overwriting shuffled value over RasterLayer.
+  # This overwriting relies on "rownames" which is technically a row index.
+  
+  # Setting output file directory
+  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geo_PERT.nc")
+  file.copy(NWM_geo_Dir, out_file, overwrite = TRUE)
+  
+  #using ncdf4 package to write separate GEOGRID with shuffled LU_INDEX
+  nc = ncdf4::nc_open(out_file, write = TRUE)
+  ncdf4::ncvar_put(nc, "LU_INDEX", vals = as.vector(t(apply(as.matrix(NWM_PERT), 2, rev))))
+  ncdf4::nc_close(nc)
+  print(paste0(name, ": Done"))
+  rm(NWM_geo_Dir, NWM_geo_mask_df, NWM_geo)
+}
+
 ### STEP 4 END======================================================================
 
 
@@ -143,9 +177,9 @@ for(i in 1:nrow(locs)){
   
   
   # Setting output file directory
-  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_huc12uniform.nc")
+  out_file = paste0('/mnt/d/subsetDOMAINS/', name, "/geo_HUC12L.nc")
   
-  file.copy(paste0('/mnt/d/subsetDOMAINS/', name, "/geogrid_area_resample.nc"), 
+  file.copy(paste0('/mnt/d/subsetDOMAINS/', name, "/geo_AP.nc"), 
             out_file, 
             overwrite = TRUE)
   
@@ -244,10 +278,15 @@ for(x in namelist){
   setwd(targetDir)
   system("./create_wrfinput_AP.R --geogrid='geo_AP.nc' --filltyp=3 --laimo=8;
   ./create_wrfinput_SHUF.R --geogrid='geo_SHUF.nc' --filltyp=3 --laimo=8; 
-  ./create_wrfinput_HUC12L.R --geogrid='geo_HUC12L.nc' --filltyp=3 --laimo=8; 
-  ./create_soilproperties_AP.R; ./create_soilproperties_SHUF.R; ./create_soilproperties_HUC12L.R")
+  ./create_wrfinput_HUC12L.R --geogrid='geo_HUC12L.nc' --filltyp=3 --laimo=8;
+  ./create_wrfinput_PERT.R --geogrid='geo_PERT.nc' --filltyp=3 --laimo=8;
+  ./create_wrfinput_LR.R --geogrid='geo_em.nc' --filltyp=3 --laimo=8;
+         ")
   file.remove(files);  setwd('/mnt/d/')
 }
+
+./create_soilproperties_AP.R; ./create_soilproperties_SHUF.R; ./create_soilproperties_HUC12L.R; ./create_soilproperties_PERT.R; ./create_soilproperties_LR.R
+
   ### STEP 6 END======================================================================
 
 # Plotting
