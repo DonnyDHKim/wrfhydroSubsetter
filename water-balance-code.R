@@ -16,6 +16,27 @@ run_timestamp = '20220923_1945'
 scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
 
 
+#These are the variable names, descriptions and units we need
+df = data.frame(variableNames = c("ACCECAN", "ACCEDIR", "ACCETRAN", "ACCPRCP",
+                                  "CANICE", "CANLIQ", "SFCRUNOFF", "UDRUNOFF", "SNEQV"),
+                
+                description = c("Accumulated canopy evaporation",
+                                "Accumulated direct soil evaporation",
+                                "Accumulated transpiration",
+                                "Accumulated precipitation",
+                                "Canopy ice water content",
+                                "Canopy liquid water content",
+                                "Accumulated surface runoff",
+                                "Accumulated underground runoff",
+                                "Snow water equivalent"),
+                
+                units = c("mm", "mm", "mm", "mm", "mm", "mm", "mm", "mm", "kgm2"))
+
+# USER PROVIDES SOIL DEPTH
+soil_depths_mm = c(100, 300, 600, 1000)
+
+
+
 # USER PROVIDES DIRECTORY, TO OUTPUT
 {
   subPath = paste0('/mnt/d/subsetDOMAINS/', name, '/geo_em.nc')
@@ -25,6 +46,9 @@ scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
   
   #maskBas = fasterize::fasterize(st_transform(basin, st_crs(geogrid.raster)), geogrid.raster) # may be this needs to be changed?
   maskBas = raster::rasterize(st_transform(basin, st_crs(geogrid.raster)), geogrid.raster, getCover=TRUE)
+  ## Mask of 1, NA depending on if cell is in basin
+  maskMatrix = raster::as.matrix(maskBas) 
+  
   dir_list = c(paste0('/mnt/d/OUTPUTS/', name, '/RUN_', run_timestamp, '/'),
                paste0('/mnt/d/OUTPUTS/', name, '/RUN_AP_', run_timestamp, '/'),
                paste0('/mnt/d/OUTPUTS/', name, '/RUN_SHUF_', run_timestamp, '/'),
@@ -35,39 +59,10 @@ scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
 
 
 
-#These are the variable names, descriptions and units we need
-df = data.frame(variableNames = c("ACCECAN", "ACCEDIR", "ACCETRAN", "ACCPRCP",
-                                  "CANICE", "CANLIQ", "SFCRUNOFF", "UDRUNOFF", "SNEQV"),
-
-                description = c("Accumulated canopy evaporation",
-                                "Accumulated direct soil evaporation",
-                                "Accumulated transpiration",
-                                "Accumulated precipitation",
-                                "Canopy ice water content",
-                                "Canopy liquid water content",
-                                "Accumulated surface runoff",
-                                "Accumulated underground runoff",
-                                "Snow water equivalent"),
-
-                units = c("mm", "mm", "mm", "mm", "mm", "mm", "mm", "mm", "kgm2"))
-
-## Mask of 1, NA depending on if cell is in basin
-maskMatrix = raster::as.matrix(maskBas) 
-
 #=======================================================
 ## FUNCTION WILL START HERE:
 ## INPUTS ARE FILELIST (dir), soil depths (vector, mm) and maskBas (raster):
-#=======================================================
 
-
-
-# USER PROVIDES SOIL DEPTH
-soil_depths_mm = c(100, 300, 600, 1000)
-
-
-
-
-###### FUNCTION
 total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
   
   ########
@@ -227,6 +222,9 @@ total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
   
   return(to_plot)
 }
+###### FUNCTION end
+#=======================================================
+
 
 nwm_to_plot = total_wb_insepction(dir_list[1], maskMatrix, sfcrt = TRUE)
 ap_to_plot = total_wb_insepction(dir_list[2], maskMatrix, sfcrt = TRUE)
@@ -283,3 +281,101 @@ ggplot(data = huc12l_to_plot, aes(y = pcts, x = basin, fill = labels)) +
   labs(fill = "", x = "", y = "% of Water Budget")
 
 
+
+####====================================================
+
+#### Loop for saving files
+
+locs = data.frame(comids = c(23762661, 1631587, 5894384, 19389766, 191739, 5781369),
+                  siteID = c('14190500', '14190500', '01616500', '03118500' ,'6709000' , '08159000'))
+
+namelist = c()
+for (i in 1:nrow(locs)){
+  state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
+  name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
+  namelist = c(namelist, name)
+  rm(name)
+}
+
+scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
+
+#######################
+tic()
+for (i in 1:nrow(locs)) {
+  comid = locs$comids[i]
+  name = namelist[i]
+  print(paste0("Processing: ", name))
+  subPath = paste0('/mnt/d/subsetDOMAINS/', name, '/geo_em.nc')
+  
+  geogrid.raster = wrfhydroSubsetter::make_empty_geogrid_raster(subPath)
+  basin = dataRetrieval::findNLDI(comid = comid, find = c("basin"))$basin
+  maskBas = raster::rasterize(st_transform(basin, st_crs(geogrid.raster)), geogrid.raster, getCover=TRUE)
+  
+  ## Mask of 1, NA depending on if cell is in basin
+  maskMatrix = raster::as.matrix(maskBas) 
+  
+  NWM_OUT_path     = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[1]
+  AP_OUT_path      = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[2]
+  HUC12L_OUT_path  = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[3]
+  SHUF_OUT_path    = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[5]
+  PERT_OUT_path    = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[4]
+  
+  
+  dir_list = c(NWM_OUT_path,   
+               AP_OUT_path,    
+               HUC12L_OUT_path,
+               SHUF_OUT_path,
+               PERT_OUT_path
+               )
+  
+  nwm_to_plot = total_wb_insepction(dir_list[1], maskMatrix, sfcrt = TRUE)
+  ap_to_plot = total_wb_insepction(dir_list[2], maskMatrix, sfcrt = TRUE)
+  huc12l_to_plot = total_wb_insepction(dir_list[3], maskMatrix, sfcrt = TRUE)
+  shuf_to_plot = total_wb_insepction(dir_list[4], maskMatrix, sfcrt = TRUE)
+  pert_to_plot = total_wb_insepction(dir_list[5], maskMatrix, sfcrt = TRUE)
+  
+  combined = data.frame(
+    scheme = c("NWM", 
+               "AP",
+               "HUC12L",
+               "SHUF",
+               "PERT"
+               ),
+    ET = c(nwm_to_plot[1,2], 
+           ap_to_plot[1,2],
+           huc12l_to_plot[1,2],
+           shuf_to_plot[1,2],
+           pert_to_plot[1,2]
+           ),
+    SFC_Q = c(nwm_to_plot[2,2], 
+              ap_to_plot[2,2],
+              huc12l_to_plot[2,2],
+              shuf_to_plot[2,2],
+              pert_to_plot[2,2]
+              ),
+    GW_Q = c(nwm_to_plot[3,2], 
+             ap_to_plot[3,2],
+             huc12l_to_plot[3,2],
+             shuf_to_plot[3,2],
+             pert_to_plot[3,2]
+             ),
+    dS = c(nwm_to_plot[4,2], 
+           ap_to_plot[4,2],
+           huc12l_to_plot[4,2],
+           shuf_to_plot[4,2],
+           pert_to_plot[4,2]
+           ),
+    Error = c(nwm_to_plot[5,2], 
+              ap_to_plot[5,2],
+              huc12l_to_plot[5,2],
+              shuf_to_plot[5,2],
+              pert_to_plot[5,2]
+              )
+  )
+  
+  combined_plot <- reshape2::melt(combined, id.vars = "scheme")
+  
+  write.csv(combined   , paste0("/mnt/d/ANALYSIS/", name, "/WB_combined.csv"), row.names=T)
+  
+}
+toc()

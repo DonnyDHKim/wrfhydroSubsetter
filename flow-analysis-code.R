@@ -8,6 +8,64 @@
 }
 
 #devtools::install_github("NCAR/rwrfhydro")
+
+locs = data.frame(comids = c(23762661, 1631587, 5894384, 19389766, 191739, 5781369),
+                  siteID = c('14190500', '14190500', '01616500', '03118500' ,'6709000' , '08159000'))
+
+namelist = c()
+for (i in 1:nrow(locs)){
+  state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
+  name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
+  namelist = c(namelist, name)
+  rm(name)
+}
+
+scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
+
+
+list.files("/mnt/d/OUTPUTS/douglas_colorado_191739_6709000/", "RUN_", full.names = TRUE)
+##### Loop to save csv files
+
+{
+  library(parallel); library(doParallel); library(foreach); library(tictoc)
+  cl <- parallel::makeCluster(detectCores()-4) # don't set makeCluster(n) too high on laptops.
+  registerDoParallel(cl)
+  
+  tic()
+  for (i in 1:nrow(locs)) {
+    name = namelist[i]
+    rtlinkFile <- ReadRouteLink(paste0("/mnt/d/subsetDOMAINS/", name, "/RouteLink.nc"))
+    
+    NWM_OUT_path     = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[1]
+    AP_OUT_path      = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[2]
+    SHUF_OUT_path    = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[5]
+    HUC12L_OUT_path  = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[3]
+    PERT_OUT_path    = list.files(paste0("/mnt/d/OUTPUTS/", name), "RUN_", full.names = TRUE)[4]
+    
+    correspondCOMID = locs$comids[i]
+    
+    channelRead_NWM    = ReadChrtout(NWM_OUT_path, correspondCOMID, parallel=TRUE) #%>% select(q_cms) %>% as.numeric()
+    channelRead_AP     = ReadChrtout(AP_OUT_path, correspondCOMID, parallel=TRUE) #%>% select(q_cms) %>% as.numeric()
+    channelRead_SHUF   = ReadChrtout(SHUF_OUT_path, correspondCOMID, parallel=TRUE) #%>% select(q_cms) %>% as.numeric()
+    channelRead_HUC12L = ReadChrtout(HUC12L_OUT_path, correspondCOMID, parallel=TRUE) #%>% select(q_cms) %>% as.numeric()
+    channelRead_PERT   = ReadChrtout(PERT_OUT_path, correspondCOMID, parallel=TRUE) #%>% select(q_cms) %>% as.numeric()
+    
+    dir.create(paste0("/mnt/d/ANALYSIS/", name))
+    write.csv(channelRead_NWM   , paste0("/mnt/d/ANALYSIS/", name, "/RawFlow_NWM.csv"), row.names=T)
+    write.csv(channelRead_AP    , paste0("/mnt/d/ANALYSIS/", name, "/RawFlow_AP.csv"), row.names=T)
+    write.csv(channelRead_SHUF  , paste0("/mnt/d/ANALYSIS/", name, "/RawFlow_SHUF.csv"), row.names=T)
+    write.csv(channelRead_HUC12L, paste0("/mnt/d/ANALYSIS/", name, "/RawFlow_HUC12L.csv"), row.names=T)
+    write.csv(channelRead_PERT  , paste0("/mnt/d/ANALYSIS/", name, "/RawFlow_PERT.csv"), row.names=T)
+  }
+  toc()
+  
+  parallel::stopCluster(cl) # Important to do this.
+}
+
+
+
+
+###### below is original
 name = 'douglas_colorado_191739_6709000'
 run_timestamp = '20220923_1945'
 scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
