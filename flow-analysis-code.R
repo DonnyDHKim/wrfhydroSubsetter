@@ -9,8 +9,8 @@
 
 #devtools::install_github("NCAR/rwrfhydro")
 
-locs = data.frame(comids = c(23762661, 1631587, 5894384, 19389766, 191739, 5781369),
-                  siteID = c('14190500', '14190500', '01616500', '03118500' ,'6709000' , '08159000'))
+locs = data.frame(comids = c(191739, 1631587, 5894384, 5781369, 19389766, 23762661),
+                  siteID = c('6709000', '08173000', '01616500', '08159000' ,'03118500' , '14190500'))
 
 namelist = c()
 for (i in 1:nrow(locs)){
@@ -131,10 +131,73 @@ message("Reading discharge output from Channel Routing files complete")
 print(names(channelRead.NWM))
 
 # Well why don't I improt the USGS gage streamflow data
+# loop
+
+locs$siteID = zeroPad(locs$siteID, 8)
+
+library(xts)
+
+{
+  tic()
+  for (i in 2:2) {
+    name = namelist[i]
+    gageid = locs$siteID[i]
+    
+    USGS_flow = readNWISuv(siteNumbers = gageid, parameterCd = "00060", "2000-09-30", "2020-09-30") %>% 
+      renameNWISColumns() #%>% 
+    
+    USGS_flow2 = USGS_flow %>% mutate(Flow_Inst = .[[4]] * 0.028316846592)
+
+    #USGS_flow2 = USGS_flow2 %>% 
+    #  mutate(WY = ifelse(lubridate::month(dateTime) >= 10, lubridate::year(dateTime)+1, lubridate::year(dateTime)))
+    #
+    #USGS_flow2 = USGS_flow2 %>% 
+    #  filter(WY > lubridate::year(USGS_flow2$dateTime[1]))
+    
+    
+    if (lubridate::month(USGS_flow2$dateTime[1]) < 10){
+      USGS_flow2 = USGS_flow2 %>% 
+        mutate(WY = ifelse(lubridate::month(dateTime) >= 10, lubridate::year(dateTime)+1, lubridate::year(dateTime))) %>% 
+        filter(WY > lubridate::year(USGS_flow2$dateTime[1]))
+      USGS_flow_trim = USGS_flow2 %>% 
+        filter(dateTime >= as.POSIXct("2000-09-30 23:59:00", tz = "utc") & dateTime <= as.POSIXct("2020-10-01 00:01:00", tz = "utc"))
+    } else {    
+      USGS_flow_trim = USGS_flow2 %>% 
+      filter(dateTime >= as.POSIXct("2000-09-30 23:59:00", tz = "utc") & dateTime <= as.POSIXct("2020-10-01 00:01:00", tz = "utc"))
+      }
+    
+    
+
+    
+    USGS_flow_hrly <- aggregate(USGS_flow_trim["Flow_Inst"], 
+                     list(hour=cut(as.POSIXct(USGS_flow_trim$dateTime), "6 hour")),
+                     mean)
+    #USGS_flow_hrly = USGS_flow_hrly[18:173090,]
+    
+    #flow.xts = xts(USGS_flow_hrly$Flow_Inst, as.POSIXct(USGS_flow_hrly$hour))
+    #ends = as.integer(endpoints(flow.xts, on='hours', k=6)+1)[1:length(ends)-1]
+    #flow.xts2 = period.apply(flow.xts, ends, mean)
+    #
+    #USGS_flow <- readNWISdv(siteNumbers = gageid, parameterCd = "00060", "2000-10-01", "2020-09-30") %>% 
+    #  renameNWISColumns() %>% 
+    #  mutate(Flow = Flow * 0.028316846592)
+
+    
+    print(paste0(name, ": Compete, without problem."))
+    dir.create(paste0("/mnt/d/ANALYSIS/", name))
+    write.csv(USGS_flow_hrly   , paste0("/mnt/d/ANALYSIS/", name, "/USGS_6hrly.csv"), row.names=T)
+  }
+  toc()
+}
 
 USGS_flow <- readNWISdv(siteNumbers = gage_USGS, parameterCd = "00060", "2000-10-01", "2020-09-30") %>% 
   renameNWISColumns() %>% 
   mutate(Flow = Flow * 0.028316846592)
+
+
+
+
+
 
 
 make_daily = function(df){

@@ -90,9 +90,10 @@ total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
     surface_extract = lapply(seq_along(df$variableNames), function(i){
       # Read in variable, transpose, multiply by basin mask, and average
       # Result is average *unit* of *variable* in the basin at time of file
-      mean(apply(t(RNetCDF::var.get.nc(tmp.nc, df$variableNames[i])), 2, rev) *
-             maskMatrix, na.rm = TRUE)
-    })
+      #mean(apply(t(RNetCDF::var.get.nc(tmp.nc, df$variableNames[i])), 2, rev) *
+      #       maskMatrix, na.rm = TRUE)
+      sum(apply(t(RNetCDF::var.get.nc(tmp.nc, df$variableNames[i])), 2, rev) * maskMatrix, na.rm = TRUE)/sum(maskMatrix, na.rm = TRUE)
+    }) #DK: This might need some revision....
     
     # Open 3D SMC variable
     soil = RNetCDF::var.get.nc(tmp.nc, "SMC")
@@ -102,9 +103,10 @@ total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
       # Read in soil layer, transpose, multiply by basin mask, average,
       # multiply by soil depth of layer
       # Result is average mm in each layer in the basin at time of file
-      mean(apply(t(soil[,i,]), 2, rev) *
-             maskMatrix, na.rm = TRUE) *
-        soil_depths_mm[i]
+      #mean(apply(t(soil[,i,]), 2, rev) *
+      #       maskMatrix, na.rm = TRUE) *
+      #  soil_depths_mm[i]
+      sum(apply(t(soil[,i,]), 2, rev) * maskMatrix, na.rm = TRUE)/sum(maskMatrix, na.rm = TRUE) * soil_depths_mm[i]
     })
     
     # 1 row data.frame, 1 date, all variables
@@ -142,8 +144,9 @@ total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
     
     for(i in 1:nrow(hyd_fileList)){
       tmp.nc = RNetCDF::open.nc(hyd_fileList$files[i])
-      HYD_QSTRMVOL = mean(apply(t(RNetCDF::var.get.nc(tmp.nc, "qstrmvolrt")), 2, rev) *
-                            maskMatrix, na.rm = TRUE)
+      #HYD_QSTRMVOL = mean(apply(t(RNetCDF::var.get.nc(tmp.nc, "qstrmvolrt")), 2, rev) *
+      #                      maskMatrix, na.rm = TRUE)
+      HYD_QSTRMVOL = sum(apply(t(RNetCDF::var.get.nc(tmp.nc, "qstrmvolrt")), 2, rev) * maskMatrix, na.rm = TRUE)/sum(maskMatrix, na.rm = TRUE)
       
       hyd_out[[i]] = data.frame(t(c(unlist(HYD_QSTRMVOL)))) %>% setNames("qstrmvolrt")
       
@@ -375,7 +378,87 @@ for (i in 1:nrow(locs)) {
   
   combined_plot <- reshape2::melt(combined, id.vars = "scheme")
   
-  write.csv(combined   , paste0("/mnt/d/ANALYSIS/", name, "/WB_combined.csv"), row.names=T)
+  write.csv(combined   , paste0("/mnt/d/ANALYSIS/", name, "/WB_combined_sumfix.csv"), row.names=T)
   
 }
 toc()
+
+
+
+### Post analysis
+locs = data.frame(comids = c(23762661, 1631587, 5894384, 19389766, 191739, 5781369),
+                  siteID = c('14190500', '14190500', '01616500', '03118500' ,'6709000' , '08159000'))
+
+namelist = c()
+for (i in 1:nrow(locs)){
+  state = st_transform(AOI::aoi_get(state = "all", county = "all"), 4269)[st_transform(findNLDI(comid = locs$comids[i]), crs = 4269),]
+  name = gsub(" ", "-", tolower(paste(state$name, state$state_name, locs$comids[i], locs$siteID[i], sep = "_")))
+  namelist = c(namelist, name)
+  rm(name)
+}
+#name = namelist[1]
+
+df_out = data.frame()
+for (i in 1:length(namelist)){
+  
+  x = read.csv(paste0("/mnt/d/ANALYSIS/", namelist[i], "/WB_combined_sumfix.csv"), header = T, row.names=2)[1:3,2:6]
+  x = x[c("AP", "NWM", "HUC12L"),]
+  colnames(x) = c("ET", "SFC", "GW", "dS", "Err")
+  rownames(x) =c(paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x)[1]),
+                 paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x)[2]),
+                 paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x)[3]))
+  
+  x2 = x %>% 
+    mutate(p.diff_ET  = (ET - ET[1])*100*2/(ET + ET[1])) %>% 
+    mutate(p.diff_SFC = (SFC - SFC[1])*100*2/(SFC + SFC[1])) %>% 
+    mutate(p.diff_GW  = (GW - GW[1])*100*2/(GW + GW[1])) %>% 
+    mutate(across(where(is.numeric), ~ round(., 2)))
+  
+  df_out = rbind(df_out, x2)
+}
+write.csv(df_out   , paste0("/mnt/d/ANALYSIS/WB_first_three.csv"), row.names=T)
+
+
+df_out2 = data.frame()
+for (i in 1:length(namelist)){
+  
+  x = read.csv(paste0("/mnt/d/ANALYSIS/", namelist[i], "/WB_combined_sumfix.csv"), header = T, row.names=2)[,2:4]
+  colnames(x) = c("ET", "SFC", "GW")#, "dS", "Err")
+  
+  x2 = x[c("AP", "SHUF"),]
+  x3 = x[c("NWM", "PERT"),]
+  rownames(x2) =c(paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x2)[1]),
+                 paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x2)[2]))
+  rownames(x3) =c(paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x3)[1]),
+                  paste0(str_split(namelist[i], "_")[[1]][1],"_",rownames(x3)[2]))
+  
+  x2 = x2 %>% 
+    mutate(p.diff_ET  = (ET - ET[1])*100*2/(ET + ET[1])) %>% 
+    mutate(p.diff_SFC = (SFC - SFC[1])*100*2/(SFC + SFC[1])) %>% 
+    mutate(p.diff_GW  = (GW - GW[1])*100*2/(GW + GW[1])) %>% 
+    mutate(across(where(is.numeric), ~ round(., 1))) %>% 
+    mutate(ET  = ET - ET[1]) %>% 
+    mutate(SFC = SFC - SFC[1]) %>% 
+    mutate(GW  = GW - GW[1]) %>% 
+    #mutate(dS  = dS - dS[1]) %>% 
+    #mutate(Err  = Err - Err[1]) %>% 
+    dplyr::slice(2)
+  
+  
+  x3 = x3 %>% 
+    mutate(p.diff_ET  = (ET - ET[1])*100*2/(ET + ET[1])) %>% 
+    mutate(p.diff_SFC = (SFC - SFC[1])*100*2/(SFC + SFC[1])) %>% 
+    mutate(p.diff_GW  = (GW - GW[1])*100*2/(GW + GW[1])) %>% 
+    mutate(across(where(is.numeric), ~ round(., 1))) %>% 
+    mutate(ET  = ET - ET[1]) %>% 
+    mutate(SFC = SFC - SFC[1]) %>% 
+    mutate(GW  = GW - GW[1]) %>% 
+    #mutate(dS  = dS - dS[1]) %>% 
+    #mutate(Err  = Err - Err[1]) %>% 
+    dplyr::slice(2)
+  
+  df_out2 = rbind(df_out2, x2, x3)
+}
+write.csv(df_out2   , paste0("/mnt/d/ANALYSIS/WB_last_two.csv"), row.names=T)
+
+

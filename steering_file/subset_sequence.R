@@ -84,6 +84,7 @@ mask_geogrid_byWS = function(RasterLayer, basin){
   # We want to choose EVERY cell that intersect with watershed boundary (polygon).
   basin_coord_ras <- raster::rasterize(basin_coord, RasterLayer, getCover=TRUE) # getCover is the parameter that needs to be set True
   basin_coord_ras[basin_coord_ras==0] = NA
+  RasterLayer_mask <- stack(raster::mask(RasterLayer, basin_coord_ras))
   RasterLayer_mask_df <- stack(raster::mask(RasterLayer, basin_coord_ras)) %>% as.data.frame(xy = TRUE)
   # Resources:
   # https://stackoverflow.com/questions/68781519/errors-when-clipping-raster-stacks-with-sfst-crop-and-rastercrop
