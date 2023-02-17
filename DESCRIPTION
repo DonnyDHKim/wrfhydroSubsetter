@@ -1,6 +1,6 @@
 Package: wrfhydroSubsetter
 Title: WRF-Hydro Subsetting Tools
-Version: 0.0.0.9000
+Version: 0.0.1.0
 Authors@R: 
     c(person(given = "Mike",
              family = "Johnson",
@@ -10,10 +10,9 @@ Authors@R:
       person(given = "Dong-Hyun (Donny)",
              family = "Kim",
              role = "ctb: Bug fix and addition of functions",
-			 emial = "dkim8398@sdsu.edu",
+			 email = "dkim8398@sdsu.edu",
              comment = c(ORCID = "0000-0003-1449-5510"))
-	)
-			
+			 )
 Description: Subset WRF-Hydro Domain files for local use. Download NLDAS forcings files.
 License: CC0
 Depends:
@@ -22,8 +21,16 @@ Imports:
     dplyr,
     RNetCDF,
     sf,
-    raster
+    raster,
+    dataRetrieval,
+    AOI,
+    ncdf4,
+    spex,
+    tabularaster,
+    tidyr,
+    httr,
+    magrittr
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.1
+RoxygenNote: 7.2.3

@@ -3,6 +3,13 @@
 
 
 
+#' @title Build output grid
+#' @description Builds output grid
+#' @param input Polygon or WRF-Hydro geogrid
+#' @param cellsize resolution
+#' @importFrom magrittr %>%
+#' @importFrom sf st_bbox st_make_grid st_sf
+
 output_grid = function(input, cellsize){
   bb     = st_bbox(input)
   cols   = seq(bb$xmin,  bb$xmax, cellsize)
@@ -34,6 +41,7 @@ output_grid = function(input, cellsize){
 #' @importFrom dplyr group_by summarize mutate select n rename ungroup
 #' @importFrom tidyr pivot_wider
 #' @importFrom tabularaster cellnumbers as_tibble
+#' @importFrom magrittr %>%
 #' @return a tibble
 
 summarize.cells = function(input, output, no_data = NA){
@@ -100,9 +108,10 @@ summarize.cells = function(input, output, no_data = NA){
 #' @param method the method for resampling, nearest neighbor (nn), majority rule (maj), Area-based (area), or raw area (rawarea)
 #' @param no_data a value to be treated as NO_DATA. Default to NA
 #' @param seed seed number for random class assignment in rawarea
-#' @importFrom raster writeRaster raster
+#' @importFrom raster writeRaster raster extent crs
 #' @importFrom sf st_bbox st_centroid st_crs st_make_grid st_coordinates st_sf
 #' @importFrom dplyr mutate
+#' @importFrom magrittr %>%
 #' @return a resampled raster
 #' @export
 
@@ -113,8 +122,8 @@ resampleDataMod = function(input, output_geo=NULL, cellsize = 1000,  method = "a
  # Added by DK
  if (!is.null(output_geo)) {
    message("Using geogrid as target raster")
-   bb <- extent(output_geo)
-   extent(input) <- bb
+   bb = extent(output_geo)
+   extent(input) = bb
    #crs(input) <- paste0(st_crs(output_geo))[1]
    output = output_grid(output_geo, cellsize = cellsize)
  } else {

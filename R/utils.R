@@ -135,6 +135,7 @@ geo_grid_proj = function(path)
 #' @importFrom RNetCDF open.nc dim.inq.nc att.get.nc var.get.nc
 #' @importFrom sf st_point st_sfc st_transform st_coordinates
 #' @importFrom raster raster values
+#' @importFrom magrittr %>%
 
 make_empty_geogrid_raster = function(path, var = NULL)
 {
@@ -246,6 +247,7 @@ read_wt_file = function (wtFile)
 #' @param jstart Start index for the grid in the j (y) direction
 #' @param jend End index for the grid in the j (y) direction
 #' @return List of 2 dataframes
+#' @importFrom magrittr %>%
 #' @export
 
 subset_weights = function (wts, rlids, istart, iend, jstart, jend)

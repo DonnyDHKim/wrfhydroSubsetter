@@ -12,7 +12,7 @@
 #' @importFrom spex qm_rasterToPolygons
 #' @importFrom raster crop
 #' @importFrom ncdf4 nc_open ncvar_put nc_close
-#' @importFrom resampleDataMod.R resampleDataMod
+#' @export
 
 subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, methodList = NA){
   
@@ -23,7 +23,7 @@ subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, m
   
   # Subsetting NetCDF DOMAIN files
   subset_files = paste0(outDir, "/", name , "/")
-  subset_wrf_hydro_domain_mod(AOI = basin,  domain_files = FULLDOMAINDIR,  outDir = subset_files, config = 'LongRange')
+  subset_wrf_hydro_domain(AOI = basin,  domain_files = FULLDOMAINDIR,  outDir = subset_files, config = 'LongRange')
   
   
   # Resampling sequence
@@ -70,7 +70,8 @@ subset_sequence = function(comid, siteID, FULLDOMAINDIR, outDir, nlcdDir = NA, m
 #' @description Mask GEOGRID by Watershed Boundary. This can be used to perturb LULC within WS boundary or to calculate LULC statistics within WS.
 #' @param RasterLayer GEOGRID as RasterLayer stack
 #' @param basin Watershed boundary as sf
-#' @importFrom raster rasterize mask st_buffer
+#' @importFrom raster rasterize mask stack
+#' @importFrom magrittr %>%
 #' @return a dataframe
 
 
