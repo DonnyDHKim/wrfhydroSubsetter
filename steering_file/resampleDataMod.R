@@ -1,3 +1,8 @@
+# These two functions originate from "resample" R package (https://github.com/mikejohnson51/resample).
+# Minor edits were made by Donny Kim to accomodate the need of wrfhydroSubsetter.
+
+
+
 output_grid = function(input, cellsize){
   bb     = st_bbox(input)
   cols   = seq(bb$xmin,  bb$xmax, cellsize)

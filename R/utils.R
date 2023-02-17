@@ -71,6 +71,7 @@ download_conus_nwm = function(outDir = NULL){
                    "spatialweights_CONUS_FullRouting.nc",
                    "spatialweights_CONUS_LongRange.nc",
                    "wrfinput_CONUS.nc")
+				   # This list of files were updated by Donny Kim to match the new filenames in repo.
   
   
 

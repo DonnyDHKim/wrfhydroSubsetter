@@ -207,7 +207,7 @@ ggplot()+
 ### STEP 5======================================================================
 # WS LULC statistics
 lookup_table = readxl::read_excel('/mnt/d/GitHub/wrfhydroSubsetter/nwm_land_use_mappings.xlsx') %>%
-  dplyr::select(nlcd = Class, description = Description, nwm = NWM) %>% select(nwm, nlcd, description) %>% arrange(nwm, nlcd)
+  dplyr::select(nlcd = Class, description = Description, nwm = NWM) %>% dplyr::select(nwm, nlcd, description) %>% arrange(nwm, nlcd)
 
 for(i in 1:nrow(locs)){
   name = namelist[i]; basin = findNLDI(comid = locs$comids[i], find = c("basin"))$basin;
@@ -376,7 +376,7 @@ basic_plot_prep = function(x, nlcdObj){
 
 
 plot_out = basic_plot_prep(3, nlcdObj); 
-plot_out[[4]] =  raster::reclassify(plot_out[[4]], rcl = dplyr::select(data, from = nlcd, to = nwm));
+plot_out[[4]] =  raster::reclassify(plot_out[[4]], rcl = dplyr::select(data, from = nlcd, to = nwm)); #update NLCD classification to NWM
 
 col_lu <- data.frame(
   nlcd.code = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42, 43, 51, 52, 71, 72, 73, 74, 81, 82, 90, 95),
@@ -415,8 +415,8 @@ plot_description = tt$name
 plot_description[1] = "Developed"
 
 
-
-p1 = rasterVis::gplot(plot_out[[5]]) +
+# p1 is resampled LULC grids
+p1 = rasterVis::gplot(plot_out[[1]]) +
   geom_tile(aes(fill = as.factor(value))) +
   facet_wrap(~ variable, ncol = 2) +
   geom_path(data=plot_out[[3]], aes(long, lat, group=group), color = 'black')+
@@ -439,6 +439,7 @@ p1 = rasterVis::gplot(plot_out[[5]]) +
     ,plot.margin = margin(2, 2, 2, 2)
     )
 
+# p2 = NLC
 p2 = rasterVis::gplot(plot_out[[4]])+
   geom_tile(aes(fill = as.factor(value))) +
   geom_path(data=plot_out[[3]], aes(long, lat, group=group), color = 'black')+

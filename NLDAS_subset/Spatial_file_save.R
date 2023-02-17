@@ -6,10 +6,10 @@
 }
 
 
-library(devtools)
-install_github("mikejohnson51/HydroData")
+#library(devtools)
+#install_github("mikejohnson51/HydroData")
 library(HydroData)
-detach("package:HydroData", unload=TRUE); remove.packages("HydroData");
+#detach("package:HydroData", unload=TRUE); remove.packages("HydroData");
 
 
 locs = data.frame(comids = c(191739, 1631587, 5894384, 5781369, 19389766, 23762661),

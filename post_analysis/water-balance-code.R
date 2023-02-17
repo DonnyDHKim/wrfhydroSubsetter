@@ -11,8 +11,7 @@
 
 ## Base Material
 #=======================================================
-name = 'douglas_colorado_191739_6709000'
-run_timestamp = '20220923_1945'
+
 scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
 
 
@@ -39,6 +38,9 @@ soil_depths_mm = c(100, 300, 600, 1000)
 
 # USER PROVIDES DIRECTORY, TO OUTPUT
 {
+  name = 'polk_oregon_23762661_14190500'
+  run_timestamp = '20220926_1541'
+  
   subPath = paste0('/mnt/d/subsetDOMAINS/', name, '/geo_em.nc')
   
   geogrid.raster = wrfhydroSubsetter::make_empty_geogrid_raster(subPath)
@@ -224,6 +226,7 @@ total_wb_insepction = function(dir, maskMatrix, sfcrt=FALSE){
     dplyr::mutate(labels = paste0(class, "\n", round(pcts, 1), "%"), basin = "1") #%>% dplyr::arrange(pcts)
   
   return(to_plot)
+  #return(wbDf$LSM_PRCP)
 }
 ###### FUNCTION end
 #=======================================================
@@ -301,6 +304,7 @@ for (i in 1:nrow(locs)){
 }
 
 scheme_list = c('NWM', 'AP', 'SHUF', 'HUC12L', 'PERT')
+scheme_list = c('NWM')
 
 #######################
 tic()
